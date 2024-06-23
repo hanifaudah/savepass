@@ -1,31 +1,39 @@
+#!/usr/bin/env python3
+
 import argparse
 import sqlite3
 from Crypto.Cipher import AES
 import sys
 import pyperclip
+import os
+from pathlib import Path
 
-conn = sqlite3.connect('store.db')
-cursor = conn.cursor()
+def init():
+  os.makedirs('/etc/savepass', exist_ok=True)
 
-# Execute a SQL query to create a table if it doesn't exist
-create_table_query = '''
-CREATE TABLE IF NOT EXISTS passwords (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    encrypted_password BLOB
-);
-'''
+  conn = sqlite3.connect(os.path.abspath('/etc/savepass/store.db'))
+  cursor = conn.cursor()
 
-cursor.execute(create_table_query)
-conn.commit()
-conn.close()
+  # Execute a SQL query to create a table if it doesn't exist
+  create_table_query = '''
+  CREATE TABLE IF NOT EXISTS passwords (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      encrypted_password BLOB
+  );
+  '''
+
+  cursor.execute(create_table_query)
+
+  conn.commit()
+  conn.close()
 
 def get_key():
-  with open('.key', 'r') as f:
+  with open(os.path.abspath('/etc/savepass/.key'), 'r') as f:
     key = f.read()
     return key.encode('utf-8')
 
-def add():
+def add(cursor):
   name = input('name: ')
   password = input('password: ')
 
@@ -37,24 +45,15 @@ def add():
 
   encrypted_password = cipher.nonce + ciphertext + tag
 
-  conn = sqlite3.connect('store.db')
-  cursor = conn.cursor()
-
   # Execute a SQL query to create a table if it doesn't exist
   insert_query = '''
   INSERT INTO passwords (name, encrypted_password) VALUES (?, ?)
   '''
   cursor.execute(insert_query, (name, sqlite3.Binary(encrypted_password)))
 
-  conn.commit()
-  conn.close()
-
   print(f'password with name {name} added successfully')
 
-def list_operation():
-  conn = sqlite3.connect('store.db')
-  cursor = conn.cursor()
-
+def list_operation(cursor):
   # Execute a SQL query to create a table if it doesn't exist
   select_query = '''
   SELECT name from passwords
@@ -63,17 +62,11 @@ def list_operation():
 
   rows = cursor.fetchall()
 
-  conn.commit()
-  conn.close()
-
   for row in rows:
     print(row[0])
 
-def delete():
+def delete(cursor):
   name = input('name: ')
-
-  conn = sqlite3.connect('store.db')
-  cursor = conn.cursor()
 
   # Execute a SQL query to create a table if it doesn't exist
   select_query = '''
@@ -92,16 +85,10 @@ def delete():
   '''
   cursor.execute(delete_query, (name, ))
 
-  conn.commit()
-  conn.close()
-
   print(f'password with name {name} deleted successfully')
 
-def get():
+def get(cursor):
   name = input('name: ')
-
-  conn = sqlite3.connect('store.db')
-  cursor = conn.cursor()
 
   # Execute a SQL query to create a table if it doesn't exist
   select_query = '''
@@ -126,21 +113,33 @@ def get():
 
   pyperclip.copy(plaintext)
 
-  conn.commit()
-  conn.close()
-
   print(f'password with name {name} copied to clipboard')
 
+def has_init():
+  return Path(os.path.abspath('/etc/savepass/store.db')).exists() and Path(os.path.abspath('/etc/savepass/.key')).exists()
+
 if __name__ == '__main__':
-   parser = argparse.ArgumentParser()
-   parser.add_argument('operation')
+  parser = argparse.ArgumentParser(description='savepass: save your passwords locally')
+  parser.add_argument('operation', default='help', help='init|add|list|get|delete', nargs='?')
 
-   args = parser.parse_args()
+  args = parser.parse_args()
 
-   operation = args.operation
+  operation = args.operation
 
-   if operation == 'add': add()
-   elif operation == 'list': list_operation()
-   elif operation == 'delete': delete()
-   elif operation == 'get': get()
-   else: print('commands: add|list|get|delete')
+  if operation == 'init': init()
+  else:
+    if operation != 'init' and not has_init():
+      print('please init first')
+      sys.exit()
+      
+    conn = sqlite3.connect(os.path.abspath('/etc/savepass/store.db'))
+    cursor = conn.cursor()
+
+    if operation == 'add': add(cursor)
+    elif operation == 'list': list_operation(cursor)
+    elif operation == 'delete': delete(cursor)
+    elif operation == 'get': get(cursor)
+    elif operation == 'help': parser.print_help()
+
+    conn.commit()
+    conn.close()
